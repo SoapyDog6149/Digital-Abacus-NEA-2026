@@ -1,0 +1,1 @@
+{"timer_duration": 60, "int_min": 1, "int_max": "99999"}
