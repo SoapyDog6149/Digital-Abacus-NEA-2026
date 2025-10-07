@@ -1,4 +1,3 @@
-import network
 import espnow
 import time
 
@@ -9,117 +8,122 @@ def b_str_conv(byte_data):
 
 ##ESPNOW BOOT##
 
-def boot_program():
-    global e, CYD_mac
-    # Initialize ESP-NOW
-    
-    sta = network.WLAN(network.STA_IF)
-    sta.active(True)
-    sta.config(channel=1)  # Set channel explicitly if packets are not delivered, uncomment if nessesary
-    sta.disconnect()
+# Initialize ESP-NOW
+import network
+# Initialize WLAN
+sta = network.WLAN(network.STA_IF)
+sta.active(True)
+sta.disconnect()
+#sta.config(channel=1)  # Set explicit channel
+#sta.config(pm=network.PM_NONE)  # Disable power saving
 
-    e = espnow.ESPNow()
+# Initialize ESP-NOW
+e = espnow.ESPNow()
+try:
+    e.active(True)
+except OSError as err:
+    print("Failed to initialize ESP-NOW:", err)
+    raise
+
+# CYD MAC address
+CYD_mac = b'\xec\xe3\x34\x1f\xb0\xc0'  # CYD's MAC
+# CYD_mac = b'\xff\xff\xff\xff\xff\xff'  # Broadcast for testing
+
+# Add peer
+try:
+    e.add_peer(CYD_mac)
+except OSError as err:
+    print("Failed to add peer:", err)
+    raise
+
+received_pong = False
+
+def send_ping(m_msg):  # Send and print
+    if e.send(CYD_mac, m_msg, True):
+        print(f"Sent to CYD: {m_msg}")
+    else:
+        print("Failed to send (returned False)")
+
+while not received_pong:
     try:
-        e.active(True)
+        main_message = "main ping"
+        send_ping(main_message)
+
+        # Listen with timeout (wait up to 2 seconds for response)
+        host, cyd_msg = e.recv(2000)
+
+        if cyd_msg is not None:
+            print(f"Received from {host}: {b_str_conv(cyd_msg)}")
+            n_cyd_msg = b_str_conv(cyd_msg)
+            if n_cyd_msg == "cyd pong":
+                received_pong = True
+                break
+        else:
+            print("No response in timeout")
+
+        time.sleep(1)  # Retry every 1 second if needed
+
     except OSError as err:
-        print("Failed to initialize ESP-NOW:", err)
-        raise
+        print("Error:", err)
+        time.sleep(5)
 
-
-    # CYD MAC address
-    CYD_mac = b'\x30\xae\xa4\xf6\x7d\x4c' #CYD's MAC address
-    #CYD_mac = b'\xff\xff\xff\xff\xff\xff' #broadcast
-
-    # Add peer ESP
-    try:
-        e.add_peer(CYD_mac) #receiver CYD
-    except OSError as err:
-        print("Failed to add peer:", err)
-        raise
-
-    def ping_pong_init():
-        received_pong = False
-        
-        def send_ping(m_msg): # Send the message and print
-            try:
-                if e.send(CYD_mac, m_msg, True):
-                    print(f"Pinged CYD with: {m_msg}")
-                else:
-                    print("Failed to ping (send returned False)")
-            except OSError as err:
-                print(f"Failed to ping (OSError: {err})")
-        
-        while not received_pong: #ping pong procedure
-            try:
-                main_message = "main ping"
-                send_ping(main_message) #send ping message
-                 
-                # Receive message (host MAC, message, timeout of 10 seconds)
-                host, cyd_msg = e.recv(10000) #listen
-                
-                try:
-                    print(f"recieved from {b_str_conv(host)}: {b_str_conv(cyd_msg)}") #print CYD pong message
-                    
-                    n_cyd_msg = b_str_conv(cyd_msg)
-                    
-                    if n_cyd_msg == "cyd pong": #if received pong
-                        received_pong = True
-                        break
-                except:
-                    pass
-            
-                time.sleep(1)  # Ping every 1 second
-                
-            except OSError as err: #OS error handling
-                print("Error:", err)
-                time.sleep(5)
-    
-    ping_pong_init()
-    print("Boot complete!")
+print("Boot complete!")
 
 
 from dcmotor import DCMotor
 from machine import Pin, PWM
 
-def motor_init():
-    global dc_motor
-    frequency = 15000 #init the PWM frequency
-    
-    #init GPIO and motor object
-    pin1 = Pin(12, Pin.OUT) #GPIO 12
-    pin2 = Pin(14, Pin.OUT) #GPIO 14
-    enable = PWM(Pin(13), frequency) #GPIO 13
+global dc_motor
+frequency = 15000 #init the PWM frequency
 
-    dc_motor = DCMotor(pin1, pin2, enable)
-    #dc_motor = DCMotor(pin1, pin2, enable, 350, 1023) #use if need to use min/max duty values
+#init GPIO and motor object
+pin1 = Pin(12, Pin.OUT) #GPIO 12
+pin2 = Pin(14, Pin.OUT) #GPIO 14
+enable = PWM(Pin(13), frequency) #GPIO 13
+
+dc_motor = DCMotor(pin1, pin2, enable)
+#dc_motor = DCMotor(pin1, pin2, enable, 350, 1023) #use if need to use min/max duty values
+
+### ESPNOW listen and sending functions for ESP32 (Main) ###
 
 def listen_msg():
-    host, cyd_msg = e.recv(10000) #listen
     try:
-        print(f"recieved from {b_str_conv(host)}: {b_str_conv(cyd_msg)}") #print CYD message
-        receiving_cyd_msg = b_str_conv(cyd_msg) #convert the b string
-                    
-        if receiving_cyd_msg == "spin arrow": #if received pong
-            return True
-    except:
-        pass
-
-def send_message(msg): # Send the message and print
-    try:
-        if e.send(CYD_mac, msg, True):
-            print(f"Pinged CYD with: {msg}")
-        else:
-            print("Failed to ping (send returned False)")
+        print("Constantly Listening for Spin...")
+        host, cyd_msg = e.recv(2000)  # Listen with a 2-second timeout
+        if cyd_msg is not None:
+            host_str = ':'.join(f'{b:02x}' for b in host) if host else 'Unknown'
+            msg_str = cyd_msg.decode('utf-8') if cyd_msg else ''
+            print(f"Received from {host_str}: {msg_str}")
+            
+            if msg_str == "spin arrow":  # If received matching message
+                return True
+        return False  # No message or not matching
     except OSError as err:
-        print(f"Failed to ping (OSError: {err})")
+        print(f"Listen error: {err}")
+        return False
 
+def send_message(msg):
+    try:
+        success = e.send(CYD_mac, msg.encode('utf-8'), True)
+        if success:
+            print(f"Sent to CYD: {msg}")
+            return True
+        else:
+            print("Failed to send (returned False)")
+            return False
+    except OSError as err:
+        print(f"Send error (OSError: {err})")
+        return False
 
 import random
 def main_program():
+    global dc_motor
     spin_status = listen_msg()
     if spin_status == True:
-        spin_duration = random.random(2,5) #random float from 2 to 5 in seconds
+        spin_duration = random.uniform(5,10) #random float from 2 to 5 in seconds
+        print(f"Spin Duration is {spin_duration:.2f}s")
         spin_power = random.randint(40,90) #spin power one off rand int 40% - 90%
+        print(f"Spin Power is {spin_power}%")
         
         start_time = time.time()
         time_met = False
@@ -136,18 +140,8 @@ def main_program():
 
 #run the program
 
-boot_program()
-motor_init()
-
 while True: #whilst it is on...
     main_program()
 
 
 
-
-
-
-
-
-
-        

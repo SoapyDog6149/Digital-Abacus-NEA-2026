@@ -9,6 +9,3 @@ import display_driver
 
 lv.init()
 gc.collect()
-
-import app
-app.run()
