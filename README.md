@@ -1,4 +1,4 @@
-# Digital Abacus: AQA Engineering NEA 2026
+# Digital Abacus: AQA Engineering NEA 2026 Submission
 Software for AQA8852 Engineering NEA 2026 Submission
 
 The ESP32-2432S028R (CYD) runs on Micropython + LVGL + ESPNOW firmware.
